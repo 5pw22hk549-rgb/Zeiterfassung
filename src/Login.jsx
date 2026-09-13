@@ -1,16 +1,7 @@
 import { useState } from "react";
 import { Hammer, Mail } from "lucide-react";
 import { supabase } from "./supabaseClient";
-
-const BG = "#000000";
-const SURFACE = "#1C1C1E";
-const BORDER = "#2C2C2E";
-const TEXT = "#FFFFFF";
-const TEXT_MUTED = "#8E8E93";
-const ACCENT = "#0A84FF";
-const DANGER = "#FF453A";
-const SYSTEM_FONT =
-  '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+import { BG_PAGE, BG_SURFACE, BORDER, TEXT, TEXT_MUTED, ACCENT, DANGER, SYSTEM_FONT } from "./lib/model";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -38,15 +29,20 @@ export default function Login() {
   return (
     <div
       className="w-full min-h-screen flex items-center justify-center p-6"
-      style={{ background: BG, color: TEXT, fontFamily: SYSTEM_FONT }}
+      style={{ background: BG_PAGE, color: TEXT, fontFamily: SYSTEM_FONT }}
     >
       <div
         className="w-full max-w-sm rounded-2xl p-6 flex flex-col gap-4"
-        style={{ background: SURFACE, border: `1px solid ${BORDER}` }}
+        style={{ background: BG_SURFACE, border: `1px solid ${BORDER}` }}
       >
-        <div className="flex items-center gap-2 justify-center mb-1">
-          <Hammer size={22} style={{ color: TEXT_MUTED }} />
-          <span className="text-lg">Zeiterfassung</span>
+        <div className="flex flex-col items-center gap-2 mb-1">
+          <div
+            className="w-14 h-14 rounded-2xl flex items-center justify-center"
+            style={{ background: ACCENT + "1F" }}
+          >
+            <Hammer size={26} style={{ color: ACCENT }} />
+          </div>
+          <span className="text-lg font-semibold">Zeiterfassung</span>
         </div>
         <p className="text-xs text-center" style={{ color: TEXT_MUTED }}>
           Anmeldung per E-Mail — kein Passwort nötig. Jede Person sieht nur ihre eigenen Daten.
@@ -79,7 +75,7 @@ export default function Login() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="du@beispiel.de"
-              className="w-full bg-transparent text-sm px-3 py-2 rounded-md"
+              className="w-full bg-transparent text-sm px-3 py-2.5 rounded-xl"
               style={{ border: `1px solid ${BORDER}`, color: TEXT }}
             />
             {error && (
@@ -90,7 +86,7 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="py-2.5 rounded-md text-sm font-semibold"
+              className="py-2.5 rounded-xl text-sm font-semibold"
               style={{ background: ACCENT, color: "#FFFFFF", opacity: loading ? 0.6 : 1 }}
             >
               {loading ? "Sende Link …" : "Anmelde-Link senden"}
