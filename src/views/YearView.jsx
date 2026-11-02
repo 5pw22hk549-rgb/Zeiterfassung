@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { BG_SURFACE, BORDER, TEXT, TEXT_MUTED, ACCENT, MONTH_NAMES, getMonthMatrix, keyOf } from "../lib/model";
+import { BG_SURFACE, BORDER, TEXT, TEXT_MUTED, ACCENT, HOLIDAY, TYPE_META, MONTH_NAMES, getMonthMatrix, keyOf, isHoliday } from "../lib/model";
 
-function MiniMonth({ year, month, onSelect, today }) {
+function MiniMonth({ year, month, onSelect, today, entries }) {
   const cells = getMonthMatrix(year, month);
   return (
     <button
@@ -15,13 +15,16 @@ function MiniMonth({ year, month, onSelect, today }) {
       <div className="grid grid-cols-7 gap-y-0.5">
         {cells.map((day, i) => {
           const isToday = day && keyOf(day) === keyOf(today);
+          const entry = day ? entries?.[keyOf(day)] : null;
+          const color = !day ? TEXT_MUTED : isHoliday(day) ? HOLIDAY : entry ? TYPE_META[entry.type]?.color || TEXT : TEXT_MUTED;
           return (
             <div key={i} className="flex items-center justify-center h-4">
               {day && (
                 <span
                   className="text-[9px] leading-none rounded-full w-3.5 h-3.5 flex items-center justify-center"
                   style={{
-                    color: isToday ? "#fff" : TEXT_MUTED,
+                    color: isToday ? "#fff" : color,
+                    fontWeight: entry || (day && isHoliday(day)) ? 700 : 400,
                     background: isToday ? ACCENT : "transparent",
                   }}
                 >
@@ -36,7 +39,7 @@ function MiniMonth({ year, month, onSelect, today }) {
   );
 }
 
-export default function YearView({ year, onPrevYear, onNextYear, onSelectMonth }) {
+export default function YearView({ year, entries, onPrevYear, onNextYear, onSelectMonth }) {
   const today = new Date();
   return (
     <div className="flex flex-col h-full" style={{ color: TEXT }}>
@@ -52,7 +55,7 @@ export default function YearView({ year, onPrevYear, onNextYear, onSelectMonth }
       <div className="flex-1 overflow-y-auto px-3 pb-3">
         <div className="grid grid-cols-3 gap-2.5">
           {Array.from({ length: 12 }, (_, m) => (
-            <MiniMonth key={m} year={year} month={m} onSelect={onSelectMonth} today={today} />
+            <MiniMonth key={m} year={year} month={m} onSelect={onSelectMonth} today={today} entries={entries} />
           ))}
         </div>
       </div>

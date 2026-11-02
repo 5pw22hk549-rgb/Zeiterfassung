@@ -1,56 +1,45 @@
 // Export: Zeilen für einen Monat aufbauen, PDF (Druckdialog)/Excel (.xls)/CSV erzeugen, Teilen/Download.
 // Bewusst ohne externe Bibliotheken (jsPDF/xlsx) – im Sandbox-Build ohne npm-Registry-Zugriff
 // nicht installierbar. Die Excel-Datei ist eine HTML-Tabelle mit .xls-Endung (öffnet in Excel,
-// Numbers, Google Sheets zuverlässig, ganz ohne Bibliothek). PDF nutzt den nativen Druckdialog,
-// wie schon in der Vorgängerversion – das funktioniert auf iOS/iPadOS zuverlässig fürs Teilen/
-// Sichern als PDF.
+// Numbers, Google Sheets zuverlässig, ganz ohne Bibliothek). PDF nutzt den nativen Druckdialog –
+// von dort "Teilen" oder "Als PDF sichern" wählen, funktioniert auf iOS/iPadOS zuverlässig.
 import {
   MONTH_NAMES,
   WEEKDAYS_SHORT,
   TYPE_META,
-  TIME_TYPES,
   calcHours,
-  montageAmount,
-  overnightAmount,
   formatHours,
   getMonthDays,
   keyOf,
-  jobById,
+  holidayName,
 } from "./model";
 
-export function buildMonthRows(settings, entries, year, month, jobFilterId) {
+export function buildMonthRows(settings, entries, year, month) {
   const days = getMonthDays(year, month);
   const rows = [];
   for (const day of days) {
     const key = keyOf(day);
-    const dayEntries = entries[key] || [];
-    for (const e of dayEntries) {
-      if (jobFilterId && e.jobId !== jobFilterId) continue;
-      const job = jobById(settings, e.jobId);
-      const meta = TYPE_META[e.type];
-      const isTime = TIME_TYPES.includes(e.type);
-      const stunden = isTime ? calcHours(e) : 0;
-      const zulage = (montageAmount(e, job) || 0) + (overnightAmount(e, job) || 0) * (e.nights || 1);
-      let taetigkeit = "";
-      if (e.activityId === "sonstige") taetigkeit = e.activityNote || "Sonstige";
-      else if (e.activityId && job) {
-        const a = job.activities?.find((x) => x.id === e.activityId);
+    const entry = entries[key];
+    const holiday = holidayName(day);
+    const meta = entry ? TYPE_META[entry.type] : null;
+    let taetigkeit = "";
+    if (entry?.type === "arbeit") {
+      if (entry.activityId === "sonstige") taetigkeit = entry.activityNote || "Sonstige";
+      else if (entry.activityId) {
+        const a = settings.activities?.find((x) => x.id === entry.activityId);
         taetigkeit = a?.label || "";
       }
-      rows.push({
-        datum: `${String(day.getDate()).padStart(2, "0")}.${String(day.getMonth() + 1).padStart(2, "0")}.${day.getFullYear()}`,
-        wochentag: WEEKDAYS_SHORT[(day.getDay() + 6) % 7],
-        job: job?.name || "",
-        typ: meta?.label || e.type,
-        von: isTime ? e.start || "" : "",
-        bis: isTime ? e.end || "" : "",
-        pause: isTime ? (e.breaks || []).reduce((s, b) => s + (Number(b) || 0), 0) : "",
-        stunden: isTime ? formatHours(stunden) : "",
-        projekt: e.project || "",
-        taetigkeit,
-        zulage: zulage ? zulage.toFixed(2).replace(".", ",") + " €" : "",
-      });
     }
+    rows.push({
+      datum: `${String(day.getDate()).padStart(2, "0")}.${String(day.getMonth() + 1).padStart(2, "0")}.${day.getFullYear()}`,
+      wochentag: WEEKDAYS_SHORT[(day.getDay() + 6) % 7],
+      typ: holiday && meta ? `${meta.label} (Feiertag: ${holiday})` : holiday ? `Feiertag (${holiday})` : meta?.label || "",
+      von: entry?.start || "",
+      bis: entry?.end || "",
+      pause: entry?.breaks ? entry.breaks.reduce((s, b) => s + (Number(b) || 0), 0) : "",
+      stunden: entry ? formatHours(calcHours(entry, day, settings)) : "",
+      taetigkeit,
+    });
   }
   return rows;
 }
@@ -72,15 +61,12 @@ function totalsFor(rows) {
 const COLUMNS = [
   { key: "datum", header: "Datum" },
   { key: "wochentag", header: "Tag" },
-  { key: "job", header: "Job" },
   { key: "typ", header: "Typ" },
   { key: "von", header: "Von" },
   { key: "bis", header: "Bis" },
   { key: "pause", header: "Pause (Min)" },
   { key: "stunden", header: "Stunden" },
-  { key: "projekt", header: "Projekt" },
   { key: "taetigkeit", header: "Tätigkeit" },
-  { key: "zulage", header: "Zulage" },
 ];
 
 function escapeHtml(str) {

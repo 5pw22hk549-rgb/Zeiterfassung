@@ -1,4 +1,7 @@
 // Zentrales Datenmodell: Konstanten, Zeit-/Datumshelfer, Migration, Berechnungen.
+// Vereinfachtes Modell: ein Job, ein Eintrag pro Tag, vier Typen (Arbeiten,
+// Urlaub, Krank, Schule). Feiertage (NRW) werden automatisch erkannt, nicht
+// manuell eingetragen.
 
 export const ACCENT = "#0A84FF";
 export const BG_PAGE = "#000000";
@@ -10,29 +13,23 @@ export const TEXT_MUTED = "#8E8E93";
 export const SUCCESS = "#32D74A";
 export const DANGER = "#FF453A";
 export const WARNING = "#FF9F0A";
+export const HOLIDAY = "#BF5AF2";
 export const SYSTEM_FONT =
   '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 
-// Eintragstypen
+// Eintragstypen (nur noch vier – Feiertage werden automatisch erkannt, kein manueller Typ)
 export const TYPE_META = {
-  arbeit: { label: "Arbeiten", short: "Arbeit", color: "#0A84FF", hasBreaks: true, hasTimes: true },
-  fahrtzeit: { label: "Fahrtzeit", short: "Fahrt", color: "#5E9CD3", hasBreaks: true, hasTimes: true },
-  schule: { label: "Schule", short: "Schule", color: "#6E8CA0", hasBreaks: false, hasTimes: true },
-  urlaub: { label: "Urlaub", short: "Urlaub", color: "#32D74A", hasBreaks: false, hasTimes: false },
-  feiertag: { label: "Feiertag", short: "Feiertag", color: "#BF5AF2", hasBreaks: false, hasTimes: false },
-  krank: { label: "Krank", short: "Krank", color: "#FF453A", hasBreaks: false, hasTimes: false },
+  arbeit: { label: "Arbeiten", short: "Arbeit", color: "#0A84FF" },
+  urlaub: { label: "Urlaub", short: "Urlaub", color: "#32D74A" },
+  krank: { label: "Krank", short: "Krank", color: "#FF453A" },
+  schule: { label: "Schule", short: "Schule", color: "#6E8CA0" },
 };
-export const TYPE_ORDER = ["arbeit", "fahrtzeit", "urlaub", "feiertag", "schule", "krank"];
-// Zeittypen mit Stunden-Berechnung (arbeit/fahrtzeit MIT Pause, schule OHNE Pause)
-export const TIME_TYPES = ["arbeit", "fahrtzeit", "schule"];
-export const BREAK_TYPES = ["arbeit", "fahrtzeit"];
-export const FREE_DAY_TYPES = ["urlaub", "feiertag", "krank"];
-
-export const MONTAGE_LEVELS = [
-  { id: "unter8", label: "unter 8 Std." },
-  { id: "mittel", label: "8–24 Std." },
-  { id: "hoch", label: "ab 24 Std." },
-];
+export const TYPE_ORDER = ["arbeit", "urlaub", "krank", "schule"];
+// Typen mit Start-/Endzeit (arbeit MIT Pause(n), schule OHNE Pause)
+export const TIME_TYPES = ["arbeit", "schule"];
+export const BREAK_TYPES = ["arbeit"];
+// Urlaub/Krank zählen immer pauschal mit dieser Stundenzahl
+export const FIXED_DAY_HOURS = 8;
 
 export const DEFAULT_ACTIVITIES = [
   { id: "platten", label: "Platten zuschnitt" },
@@ -47,28 +44,17 @@ export function newId() {
   return "id_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-export function createDefaultJob(name = "Job 1") {
-  return {
-    id: newId(),
-    name,
-    weeklyHours: 40,
-    workDaysPerWeek: 5,
-    vacationDaysPerYear: 30,
-    montageRates: { unter8: 0, mittel: 14, hoch: 28 },
-    overnightRate: 35,
-    defaults: {
-      arbeit: { start: "07:00", end: "15:45", pause: 45 },
-      fahrtzeit: { start: "07:00", end: "08:00", pause: 0 },
-      schule: { start: "07:00", end: "15:00", pause: 0 },
-    },
-    activities: DEFAULT_ACTIVITIES.map((a) => ({ ...a })),
-  };
-}
-
 export function defaultSettings() {
   return {
     name: "",
-    jobs: [createDefaultJob("Tischlerei")],
+    weeklyHours: 40,
+    workDaysPerWeek: 5,
+    vacationDaysPerYear: 30,
+    defaults: {
+      arbeit: { start: "07:00", end: "15:45", pause: 45 },
+      schule: { start: "07:00", end: "15:00", pause: 0 },
+    },
+    activities: DEFAULT_ACTIVITIES.map((a) => ({ ...a })),
   };
 }
 
@@ -97,24 +83,25 @@ export function timeToMinutes(t) {
   return h * 60 + m;
 }
 
-export function minutesToTime(mins) {
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return `${pad2(h)}:${pad2(m)}`;
-}
-
 export function sumBreaks(breaks) {
   if (!Array.isArray(breaks)) return 0;
   return breaks.reduce((s, b) => s + (Number(b) || 0), 0);
 }
 
-// Stunden für einen einzelnen Eintrag (nur arbeit/fahrtzeit haben Zeiten)
-export function calcHours(entry) {
-  if (!entry || !TIME_TYPES.includes(entry.type)) return 0;
+// Stunden für einen einzelnen Tageseintrag.
+// Urlaub/Krank = immer pauschal 8 Std. – aber nur an Soll-Arbeitstagen
+// (an Wochenende/Feiertag 0 Std., sonst entstehen falsche Überstunden).
+export function calcHours(entry, date, settings) {
+  if (!entry) return 0;
+  if (entry.type === "urlaub" || entry.type === "krank") {
+    if (date && !isWorkday(date, settings?.workDaysPerWeek ?? 5)) return 0;
+    return FIXED_DAY_HOURS;
+  }
+  if (!TIME_TYPES.includes(entry.type)) return 0;
   const start = timeToMinutes(entry.start);
   let end = timeToMinutes(entry.end);
   if (end < start) end += 24 * 60; // über Mitternacht
-  const pause = sumBreaks(entry.breaks);
+  const pause = BREAK_TYPES.includes(entry.type) ? sumBreaks(entry.breaks) : 0;
   const mins = Math.max(0, end - start - pause);
   return mins / 60;
 }
@@ -124,17 +111,6 @@ export function formatHours(h) {
   const sign = h < 0 ? "-" : "";
   const abs = Math.abs(h);
   return sign + abs.toFixed(1).replace(".", ",");
-}
-
-export function montageAmount(entry, job) {
-  if (!entry || !entry.montage || !entry.montage.on || !job) return 0;
-  const rate = job.montageRates?.[entry.montage.level] || 0;
-  return rate;
-}
-
-export function overnightAmount(entry, job) {
-  if (!entry || entry.type !== "uebernachtung" || !job) return 0;
-  return job.overnightRate || 0;
 }
 
 export const WEEKDAYS_SHORT = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
@@ -172,156 +148,240 @@ export function getMonthMatrix(year, month) {
   return cells;
 }
 
-export function generateDateRange(startStr, endStr) {
-  const out = [];
-  let cur = parseKey(startStr);
-  const end = parseKey(endStr);
-  while (cur <= end) {
-    out.push(keyOf(cur));
-    cur = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate() + 1);
+export function getYearDays(year) {
+  const days = [];
+  for (let m = 0; m < 12; m++) days.push(...getMonthDays(year, m));
+  return days;
+}
+
+// ---------- Feiertage (Nordrhein-Westfalen), automatisch berechnet ----------
+
+function addDays(date, n) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + n);
+  return d;
+}
+
+// Gauß'sche Osterformel
+function easterSunday(year) {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day);
+}
+
+const holidayCache = new Map();
+
+// Liefert { "YYYY-MM-DD": "Name des Feiertags" } für NRW
+export function getHolidays(year) {
+  if (holidayCache.has(year)) return holidayCache.get(year);
+  const ostern = easterSunday(year);
+  const map = {};
+  const add = (date, name) => {
+    map[keyOf(date)] = name;
+  };
+  add(new Date(year, 0, 1), "Neujahr");
+  add(addDays(ostern, -2), "Karfreitag");
+  add(addDays(ostern, 1), "Ostermontag");
+  add(new Date(year, 4, 1), "Tag der Arbeit");
+  add(addDays(ostern, 39), "Christi Himmelfahrt");
+  add(addDays(ostern, 50), "Pfingstmontag");
+  add(addDays(ostern, 60), "Fronleichnam");
+  add(new Date(year, 9, 3), "Tag der Deutschen Einheit");
+  add(new Date(year, 10, 1), "Allerheiligen");
+  add(new Date(year, 11, 25), "1. Weihnachtstag");
+  add(new Date(year, 11, 26), "2. Weihnachtstag");
+  holidayCache.set(year, map);
+  return map;
+}
+
+export function holidayName(date) {
+  return getHolidays(date.getFullYear())[keyOf(date)] || null;
+}
+
+export function isHoliday(date) {
+  return !!holidayName(date);
+}
+
+// ---------- Migration (ältere Datenformate -> aktuelles einfaches Modell) ----------
+
+const ALLOWED_TYPES = new Set(TYPE_ORDER);
+
+function stripEntry(e) {
+  if (!e || !ALLOWED_TYPES.has(e.type)) return null;
+  const out = { type: e.type };
+  if (TIME_TYPES.includes(e.type)) {
+    out.start = e.start || "";
+    out.end = e.end || "";
+    if (BREAK_TYPES.includes(e.type)) out.breaks = Array.isArray(e.breaks) ? e.breaks : [];
+    if (e.type === "arbeit") {
+      out.activityId = e.activityId || "";
+      out.activityNote = e.activityNote || "";
+    }
   }
   return out;
 }
 
-// ---------- Migration Alt -> Neu ----------
-
-function isOldSettings(settings) {
-  return settings && !Array.isArray(settings.jobs);
+function minutesToTime(m) {
+  const x = ((Math.round(m) % 1440) + 1440) % 1440;
+  return `${pad2(Math.floor(x / 60))}:${pad2(x % 60)}`;
 }
 
-function isOldEntry(entry) {
-  return entry && !Array.isArray(entry) && typeof entry === "object";
+// Mehrere Alt-Einträge eines Tages -> genau ein Eintrag.
+// Mehrere Arbeitsblöcke werden ZUSAMMENGEFÜHRT (frühester Start, spätestes Ende,
+// Lücken werden zur Pause), damit keine Stunden verloren gehen.
+function pickEntry(list) {
+  const mapped = list
+    .map((e) => {
+      if (e && e.type === "montage") return { ...e, type: "arbeit" }; // alte Montage-Buchung -> normale Arbeitszeit
+      return e;
+    })
+    .filter((e) => e && ALLOWED_TYPES.has(e.type));
+  if (!mapped.length) return null;
+  const work = mapped.filter((e) => e.type === "arbeit" && e.start && e.end);
+  if (work.length > 1) {
+    const totalMin = work.reduce((s, e) => s + calcHours(e) * 60, 0);
+    const starts = work.map((e) => timeToMinutes(e.start));
+    const ends = work.map((e) => {
+      const st = timeToMinutes(e.start);
+      let en = timeToMinutes(e.end);
+      if (en < st) en += 1440;
+      return en;
+    });
+    const minS = Math.min(...starts);
+    const maxE = Math.max(...ends);
+    const pause = Math.max(0, Math.round(maxE - minS - totalMin));
+    const withAct = work.find((e) => e.activityId) || work[0];
+    return {
+      type: "arbeit",
+      start: minutesToTime(minS),
+      end: minutesToTime(maxE),
+      breaks: pause ? [pause] : [],
+      activityId: withAct.activityId || "",
+      activityNote: withAct.activityNote || "",
+    };
+  }
+  return mapped.find((e) => e.type === "arbeit") || mapped[0];
 }
 
 export function migrateData(rawEntries, rawSettings) {
-  let settings = rawSettings && Object.keys(rawSettings).length ? rawSettings : null;
-  let migratedSettings = false;
-  let job;
+  let changed = false;
+  let settings;
 
-  if (!settings) {
+  if (!rawSettings || !Object.keys(rawSettings).length) {
     settings = defaultSettings();
-    migratedSettings = true;
-    job = settings.jobs[0];
-  } else if (isOldSettings(settings)) {
-    job = createDefaultJob("Job 1");
-    job.weeklyHours = settings.weeklyHours ?? job.weeklyHours;
-    job.workDaysPerWeek = settings.workDaysPerWeek ?? job.workDaysPerWeek;
-    job.vacationDaysPerYear = settings.vacationDaysPerYear ?? job.vacationDaysPerYear;
-    if (settings.montageRates) job.montageRates = { ...job.montageRates, ...settings.montageRates };
-    if (settings.defaults) {
-      job.defaults.arbeit = settings.defaults.arbeit || job.defaults.arbeit;
-      job.defaults.schule = settings.defaults.schule || job.defaults.schule;
-    }
-    settings = { name: "", jobs: [job] };
-    migratedSettings = true;
-  } else {
-    job = settings.jobs[0];
-    // Fehlende Felder je Job auffüllen (Vorwärtskompatibilität)
+    changed = true;
+  } else if (Array.isArray(rawSettings.jobs)) {
+    // Mehrjob-Format (Feinschliff v1) -> ersten Job als flache Einstellungen übernehmen
+    const job = rawSettings.jobs[0] || {};
+    const base = defaultSettings();
     settings = {
-      ...settings,
-      jobs: settings.jobs.map((j) => ({
-        ...createDefaultJob(j.name),
-        ...j,
-        montageRates: { ...createDefaultJob().montageRates, ...(j.montageRates || {}) },
-        defaults: { ...createDefaultJob().defaults, ...(j.defaults || {}) },
-        activities: j.activities?.length ? j.activities : DEFAULT_ACTIVITIES.map((a) => ({ ...a })),
-      })),
+      name: rawSettings.name || "",
+      weeklyHours: job.weeklyHours ?? base.weeklyHours,
+      workDaysPerWeek: job.workDaysPerWeek ?? base.workDaysPerWeek,
+      vacationDaysPerYear: job.vacationDaysPerYear ?? base.vacationDaysPerYear,
+      defaults: {
+        arbeit: job.defaults?.arbeit || base.defaults.arbeit,
+        schule: job.defaults?.schule || base.defaults.schule,
+      },
+      activities: job.activities?.length ? job.activities : base.activities,
     };
-    job = settings.jobs[0];
+    changed = true;
+  } else {
+    // Bereits flaches Format (sehr alt oder schon aktuell)
+    const base = defaultSettings();
+    settings = {
+      name: rawSettings.name || "",
+      weeklyHours: rawSettings.weeklyHours ?? base.weeklyHours,
+      workDaysPerWeek: rawSettings.workDaysPerWeek ?? base.workDaysPerWeek,
+      vacationDaysPerYear: rawSettings.vacationDaysPerYear ?? base.vacationDaysPerYear,
+      defaults: {
+        arbeit: rawSettings.defaults?.arbeit || base.defaults.arbeit,
+        schule: rawSettings.defaults?.schule || base.defaults.schule,
+      },
+      activities: rawSettings.activities?.length ? rawSettings.activities : base.activities,
+    };
+    if (!rawSettings.activities?.length) changed = true;
+    // Altlasten (Übernachtung, Zulagen, Kunden, Projekte, Jobs …) fliegen raus
+    if (Object.keys(rawSettings).some((k) => !(k in settings))) changed = true;
   }
 
-  const fallbackJobId = settings.jobs[0]?.id;
-  let migratedEntries = false;
   const entries = {};
   const raw = rawEntries || {};
   for (const key of Object.keys(raw)) {
     const val = raw[key];
+    let entry = null;
     if (Array.isArray(val)) {
-      entries[key] = val.map((e) => ({ jobId: fallbackJobId, breaks: [], ...e }));
-    } else if (isOldEntry(val)) {
-      migratedEntries = true;
-      const type = val.type === "montage" ? "arbeit" : val.type;
-      const migrated = {
-        id: newId(),
-        jobId: fallbackJobId,
-        type,
-        start: val.start,
-        end: val.end,
-        breaks: type !== "schule" && val.pause ? [val.pause] : [],
-        project: "",
-        activityId: "",
-        activityNote: "",
-      };
-      if (val.type === "montage") {
-        migrated.montage = { on: true, level: val.montageLevel || "unter8", overnight: false, nights: val.nights || 0 };
-      }
-      entries[key] = [migrated];
+      entry = stripEntry(pickEntry(val));
+      changed = true;
+    } else if (val && typeof val === "object") {
+      const stripped = stripEntry(val.type === "montage" ? { ...val, type: "arbeit" } : val);
+      entry = stripped;
+      if (JSON.stringify(stripped) !== JSON.stringify(val)) changed = true;
     }
+    if (entry) entries[key] = entry;
+    else if (val) changed = true;
   }
 
-  return { entries, settings, changed: migratedSettings || migratedEntries };
+  return { entries, settings, changed };
 }
 
 // ---------- Übersicht-Berechnungen ----------
 
-function countWorkdaysInRange(days, workDaysPerWeek) {
-  // Vereinfachte Annahme: Mo-Fr sind Arbeitstage bei 5-Tage-Woche, sonst Mo-Sa bei 6.
-  return days.filter((d) => {
-    const dow = d.getDay(); // 0=So .. 6=Sa
-    if (workDaysPerWeek >= 6) return dow !== 0;
-    return dow !== 0 && dow !== 6;
-  }).length;
+export function isWorkday(date, workDaysPerWeek = 5) {
+  const dow = date.getDay(); // 0=So .. 6=Sa
+  if (isHoliday(date)) return false;
+  if (workDaysPerWeek >= 6) return dow !== 0;
+  return dow !== 0 && dow !== 6;
 }
 
-// Berechnet Kennzahlen für einen Job über eine Liste von Tagen (Monat oder Jahr)
-export function calcJobStats(job, entries, days, yearDays) {
-  const dailyHours = job.workDaysPerWeek > 0 ? job.weeklyHours / job.workDaysPerWeek : 0;
+export function calcStats(settings, entries, days, yearDays) {
+  // (Urlaub/Krank an Wochenende/Feiertag zählen weder Stunden noch Tage)
+  const dailyHours = settings.workDaysPerWeek > 0 ? settings.weeklyHours / settings.workDaysPerWeek : 0;
   let istStunden = 0;
   let sollTage = 0;
   let urlaubTageGenommen = 0;
   let krankTage = 0;
   let schulTage = 0;
   let feiertagTage = 0;
-  let montageTageSet = new Set();
-  let montageZulageSumme = 0;
-  let uebernachtungen = 0;
 
   for (const day of days) {
+    if (isHoliday(day)) feiertagTage += 1;
     const key = keyOf(day);
-    const dayEntries = (entries[key] || []).filter((e) => e.jobId === job.id);
-    if (!dayEntries.length) continue;
-    const isWorkday = countWorkdaysInRange([day], job.workDaysPerWeek) > 0;
-    if (isWorkday) sollTage += 1;
+    const entry = entries[key];
+    if (isWorkday(day, settings.workDaysPerWeek)) sollTage += 1;
+    if (!entry) continue;
 
-    for (const e of dayEntries) {
-      if (TIME_TYPES.includes(e.type)) {
-        istStunden += calcHours(e);
-        if (e.type === "arbeit") {
-          montageZulageSumme += montageAmount(e, job);
-          if (e.montage?.on) montageTageSet.add(key);
-        }
-        if (e.type === "schule") schulTage += 1;
-      } else if (e.type === "urlaub") {
-        urlaubTageGenommen += 1;
-      } else if (e.type === "krank") {
-        krankTage += 1;
-      } else if (e.type === "feiertag") {
-        feiertagTage += 1;
-      } else if (e.type === "uebernachtung") {
-        uebernachtungen += (e.nights || 1);
-        montageZulageSumme += overnightAmount(e, job) * (e.nights || 1);
-      }
+    const workday = isWorkday(day, settings.workDaysPerWeek);
+    if (entry.type === "arbeit" || entry.type === "schule") {
+      istStunden += calcHours(entry);
+      if (entry.type === "schule") schulTage += 1;
+    } else if (entry.type === "urlaub") {
+      if (workday) urlaubTageGenommen += 1;
+      istStunden += calcHours(entry, day, settings);
+    } else if (entry.type === "krank") {
+      if (workday) krankTage += 1;
+      istStunden += calcHours(entry, day, settings);
     }
   }
 
   const sollStunden = sollTage * dailyHours;
   const ueberstunden = istStunden - sollStunden;
-  const urlaubJahr = yearDays ? calcVacationTaken(job, entries, yearDays) : urlaubTageGenommen;
-  const resturlaub = job.vacationDaysPerYear - urlaubJahr;
+  const urlaubJahr = yearDays ? calcVacationTaken(entries, yearDays, settings.workDaysPerWeek) : urlaubTageGenommen;
+  const resturlaub = settings.vacationDaysPerYear - urlaubJahr;
 
   return {
-    jobId: job.id,
-    jobName: job.name,
     istStunden,
     sollStunden,
     ueberstunden,
@@ -330,18 +390,14 @@ export function calcJobStats(job, entries, days, yearDays) {
     krankTage,
     schulTage,
     feiertagTage,
-    montageTage: montageTageSet.size,
-    montageZulageSumme,
-    uebernachtungen,
   };
 }
 
-function calcVacationTaken(job, entries, yearDays) {
+function calcVacationTaken(entries, yearDays, workDaysPerWeek) {
   let n = 0;
   for (const day of yearDays) {
-    const key = keyOf(day);
-    const dayEntries = (entries[key] || []).filter((e) => e.jobId === job.id && e.type === "urlaub");
-    if (dayEntries.length) n += 1;
+    const entry = entries[keyOf(day)];
+    if (entry && entry.type === "urlaub" && isWorkday(day, workDaysPerWeek)) n += 1;
   }
   return n;
 }
@@ -349,15 +405,5 @@ function calcVacationTaken(job, entries, yearDays) {
 export function calcOverview(settings, entries, year, month /* 0-11 oder null für Jahr */) {
   const days = month === null || month === undefined ? getYearDays(year) : getMonthDays(year, month);
   const yearDays = getYearDays(year);
-  return settings.jobs.map((job) => calcJobStats(job, entries, days, yearDays));
-}
-
-export function getYearDays(year) {
-  const days = [];
-  for (let m = 0; m < 12; m++) days.push(...getMonthDays(year, m));
-  return days;
-}
-
-export function jobById(settings, id) {
-  return settings.jobs.find((j) => j.id === id);
+  return calcStats(settings, entries, days, yearDays);
 }

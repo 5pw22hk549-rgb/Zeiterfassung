@@ -9,7 +9,7 @@ const FORMATS = [
   { id: "csv", label: "CSV", icon: Table },
 ];
 
-export default function ExportView({ settings, entries, year, month, onChangeMonth, activeJobId }) {
+export default function ExportView({ settings, entries, year, month, onChangeMonth }) {
   const [format, setFormat] = useState("pdf");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
@@ -23,11 +23,7 @@ export default function ExportView({ settings, entries, year, month, onChangeMon
     setBusy(true);
     setStatus("");
     try {
-      const rows = buildMonthRows(settings, entries, year, month, activeJobId);
-      if (rows.length === 0) {
-        setStatus("Für diesen Monat gibt es noch keine Einträge.");
-        return;
-      }
+      const rows = buildMonthRows(settings, entries, year, month);
       const subject = subjectFor(settings.name, year, month);
       const filename = `Stundenzettel_${MONTH_NAMES[month]}_${year}.${fileExtFor(format)}`;
       const res = await runExport(rows, subject, format, filename, mode);

@@ -1,16 +1,5 @@
 import { useState, useMemo } from "react";
-import {
-  BG_SURFACE,
-  BORDER,
-  TEXT,
-  TEXT_MUTED,
-  ACCENT,
-  SUCCESS,
-  DANGER,
-  calcOverview,
-  formatHours,
-  MONTH_NAMES,
-} from "../lib/model";
+import { BG_SURFACE, BORDER, TEXT, TEXT_MUTED, ACCENT, SUCCESS, DANGER, calcOverview, formatHours, MONTH_NAMES } from "../lib/model";
 
 function StatCard({ label, value, sub, color }) {
   return (
@@ -28,20 +17,6 @@ export default function OverviewView({ settings, entries, year, month }) {
   const stats = useMemo(
     () => calcOverview(settings, entries, year, periodMode === "monat" ? month : null),
     [settings, entries, year, month, periodMode]
-  );
-
-  const totals = stats.reduce(
-    (acc, s) => ({
-      istStunden: acc.istStunden + s.istStunden,
-      sollStunden: acc.sollStunden + s.sollStunden,
-      ueberstunden: acc.ueberstunden + s.ueberstunden,
-      krankTage: acc.krankTage + s.krankTage,
-      schulTage: acc.schulTage + s.schulTage,
-      montageTage: acc.montageTage + s.montageTage,
-      montageZulageSumme: acc.montageZulageSumme + s.montageZulageSumme,
-      uebernachtungen: acc.uebernachtungen + s.uebernachtungen,
-    }),
-    { istStunden: 0, sollStunden: 0, ueberstunden: 0, krankTage: 0, schulTage: 0, montageTage: 0, montageZulageSumme: 0, uebernachtungen: 0 }
   );
 
   const periodLabel = periodMode === "monat" ? `${MONTH_NAMES[month]} ${year}` : `${year}`;
@@ -69,42 +44,20 @@ export default function OverviewView({ settings, entries, year, month }) {
 
       <div className="rounded-2xl p-5 flex flex-col items-center mb-3" style={{ background: BG_SURFACE, border: `1px solid ${BORDER}` }}>
         <span className="text-xs" style={{ color: TEXT_MUTED }}>Überstunden</span>
-        <span
-          className="text-3xl font-bold"
-          style={{ color: totals.ueberstunden >= 0 ? SUCCESS : DANGER }}
-        >
-          {totals.ueberstunden >= 0 ? "+" : ""}
-          {formatHours(totals.ueberstunden)} Std.
+        <span className="text-3xl font-bold" style={{ color: stats.ueberstunden >= 0 ? SUCCESS : DANGER }}>
+          {stats.ueberstunden >= 0 ? "+" : ""}
+          {formatHours(stats.ueberstunden)} Std.
         </span>
       </div>
 
       <div className="grid grid-cols-2 gap-2.5 mb-3">
-        <StatCard label="Ist-Stunden" value={`${formatHours(totals.istStunden)} Std.`} />
-        <StatCard label="Soll-Stunden" value={`${formatHours(totals.sollStunden)} Std.`} />
-        <StatCard label="Kranktage" value={totals.krankTage} color={totals.krankTage ? DANGER : undefined} />
-        <StatCard label="Schultage" value={totals.schulTage} />
+        <StatCard label="Ist-Stunden" value={`${formatHours(stats.istStunden)} Std.`} />
+        <StatCard label="Soll-Stunden" value={`${formatHours(stats.sollStunden)} Std.`} />
+        <StatCard label="Kranktage" value={stats.krankTage} color={stats.krankTage ? DANGER : undefined} />
+        <StatCard label="Schultage" value={stats.schulTage} />
+        <StatCard label="Resturlaub" value={`${stats.resturlaub} Tage`} />
+        <StatCard label="Feiertage" value={stats.feiertagTage} />
       </div>
-
-      <div className="mb-2 text-sm font-semibold">Urlaub je Job</div>
-      <div className="grid grid-cols-1 gap-2 mb-3">
-        {stats.map((s) => (
-          <div key={s.jobId} className="rounded-xl px-4 py-3 flex items-center justify-between" style={{ background: BG_SURFACE, border: `1px solid ${BORDER}` }}>
-            <span className="text-sm" style={{ color: TEXT_MUTED }}>{s.jobName}</span>
-            <span className="text-sm font-medium">{s.resturlaub} Tage übrig</span>
-          </div>
-        ))}
-      </div>
-
-      {(totals.montageTage > 0 || totals.uebernachtungen > 0) && (
-        <>
-          <div className="mb-2 text-sm font-semibold">Montage</div>
-          <div className="grid grid-cols-3 gap-2.5">
-            <StatCard label="Montage-Tage" value={totals.montageTage} />
-            <StatCard label="Übernachtungen" value={totals.uebernachtungen} />
-            <StatCard label="Zulagen" value={totals.montageZulageSumme.toFixed(2).replace(".", ",") + " €"} />
-          </div>
-        </>
-      )}
     </div>
   );
 }
