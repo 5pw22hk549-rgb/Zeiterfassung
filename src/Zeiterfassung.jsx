@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Calendar, BarChart3, Share2, Settings as SettingsIcon } from "lucide-react";
-import { BG_PAGE, TEXT, TEXT_MUTED, ACCENT, BORDER, SYSTEM_FONT, migrateData, defaultSettings } from "./lib/model";
+import { BG_PAGE, TEXT, TEXT_MUTED, ACCENT, DANGER, BORDER, SYSTEM_FONT, sortTrips } from "./lib/model";
+import { useUserData } from "./lib/useUserData";
 import CalendarView from "./views/CalendarView";
 import YearView from "./views/YearView";
 import OverviewView from "./views/OverviewView";
 import ExportView from "./views/ExportView";
 import SettingsView from "./views/SettingsView";
 import EntrySheet from "./components/EntrySheet";
+import MontageSheet from "./components/MontageSheet";
 
 const TABS = [
   { id: "kalender", label: "Kalender", icon: Calendar },
@@ -17,83 +19,37 @@ const TABS = [
 
 export default function Zeiterfassung({ session, supabase, onLogout }) {
   const userId = session.user.id;
-  const [loading, setLoading] = useState(true);
-  const [entries, setEntries] = useState({});
-  const [settings, setSettings] = useState(defaultSettings());
+  const { status, entries, settings, saveState, setEntries, setSettings, retry } = useUserData(supabase, userId);
   const [activeTab, setActiveTab] = useState("kalender");
   const [calMode, setCalMode] = useState("month"); // "month" | "year"
-  const today = new Date();
-  const [year, setYear] = useState(today.getFullYear());
-  const [month, setMonth] = useState(today.getMonth());
+  const [year, setYear] = useState(() => new Date().getFullYear());
+  const [month, setMonth] = useState(() => new Date().getMonth());
   const [sheetDate, setSheetDate] = useState(null);
+  const [montageSheet, setMontageSheet] = useState(null); // { trip } | { startKey } | null
 
-  const skipFirstEntriesSave = useRef(true);
-  const skipFirstSettingsSave = useRef(true);
-
-  // Laden
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const { data, error } = await supabase
-        .from("user_data")
-        .select("entries, settings")
-        .eq("user_id", userId)
-        .maybeSingle();
-
-      if (cancelled) return;
-
-      if (error) {
-        console.error(error);
-        setLoading(false);
-        return;
-      }
-
-      const { entries: mEntries, settings: mSettings, changed } = migrateData(data?.entries, data?.settings);
-
-      setEntries(mEntries);
-      setSettings(mSettings);
-
-      if (!data) {
-        await supabase.from("user_data").insert({ user_id: userId, entries: mEntries, settings: mSettings });
-      } else if (changed) {
-        await supabase.from("user_data").update({ entries: mEntries, settings: mSettings }).eq("user_id", userId);
-      }
-
-      setLoading(false);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, supabase]);
-
-  // Speichern: entries
-  useEffect(() => {
-    if (loading) return;
-    if (skipFirstEntriesSave.current) {
-      skipFirstEntriesSave.current = false;
-      return;
-    }
-    supabase.from("user_data").update({ entries }).eq("user_id", userId).then(({ error }) => {
-      if (error) console.error(error);
-    });
-  }, [entries, loading, userId, supabase]);
-
-  // Speichern: settings
-  useEffect(() => {
-    if (loading) return;
-    if (skipFirstSettingsSave.current) {
-      skipFirstSettingsSave.current = false;
-      return;
-    }
-    supabase.from("user_data").update({ settings }).eq("user_id", userId).then(({ error }) => {
-      if (error) console.error(error);
-    });
-  }, [settings, loading, userId, supabase]);
-
-  if (loading) {
+  if (status === "loading") {
     return (
-      <div className="w-full min-h-screen flex items-center justify-center" style={{ background: BG_PAGE, color: TEXT_MUTED, fontFamily: SYSTEM_FONT }}>
+      <div className="app-shell w-full flex items-center justify-center" style={{ background: BG_PAGE, color: TEXT_MUTED, fontFamily: SYSTEM_FONT }}>
         Lädt …
+      </div>
+    );
+  }
+
+  // Laden fehlgeschlagen: bewusst KEINE leere App zeigen – sonst würde der nächste Eintrag
+  // die gespeicherten Daten überschreiben.
+  if (status === "error") {
+    return (
+      <div className="app-shell w-full flex flex-col items-center justify-center gap-4 p-6 text-center" style={{ background: BG_PAGE, color: TEXT, fontFamily: SYSTEM_FONT }}>
+        <span className="text-base font-semibold">Daten konnten nicht geladen werden</span>
+        <span className="text-sm" style={{ color: TEXT_MUTED }}>
+          Bitte Internetverbindung prüfen. Deine gespeicherten Einträge sind sicher.
+        </span>
+        <button onClick={retry} className="rounded-xl px-5 py-2.5 text-sm font-semibold" style={{ background: ACCENT, color: "#fff" }}>
+          Erneut versuchen
+        </button>
+        <button onClick={onLogout} className="text-xs" style={{ color: TEXT_MUTED }}>
+          Abmelden
+        </button>
       </div>
     );
   }
@@ -106,23 +62,34 @@ export default function Zeiterfassung({ session, supabase, onLogout }) {
   };
 
   const saveEntry = (entry) => {
-    setEntries((prev) => ({ ...prev, [sheetDate]: entry }));
+    const key = sheetDate;
+    setEntries((prev) => ({ ...prev, [key]: entry }));
   };
   const deleteEntry = () => {
+    const key = sheetDate;
     setEntries((prev) => {
       const next = { ...prev };
-      delete next[sheetDate];
+      delete next[key];
       return next;
     });
   };
 
+  const saveTrip = (trip) =>
+    setSettings((s) => ({ ...s, montagen: sortTrips([...(s.montagen || []).filter((t) => t.id !== trip.id), trip]) }));
+  const deleteTrip = (id) => setSettings((s) => ({ ...s, montagen: (s.montagen || []).filter((t) => t.id !== id) }));
+
   return (
-    <div className="w-full min-h-screen flex flex-col" style={{ background: BG_PAGE, color: TEXT, fontFamily: SYSTEM_FONT }}>
-      <div className="flex items-center justify-between px-4 pt-4 pb-1 shrink-0">
+    <div className="app-shell w-full flex flex-col" style={{ background: BG_PAGE, color: TEXT, fontFamily: SYSTEM_FONT }}>
+      <div className="flex items-center justify-between gap-3 px-4 pt-4 pb-1 shrink-0">
         <span className="text-xl font-bold">Zeiterfassung</span>
+        {saveState === "error" && (
+          <button onClick={retry} aria-label="Nicht gespeichert – erneut versuchen" className="text-[11px] font-medium rounded-full px-2.5 py-1 shrink-0 whitespace-nowrap" style={{ background: DANGER + "26", color: DANGER }}>
+            Nicht gespeichert
+          </button>
+        )}
       </div>
 
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-hidden">
         {activeTab === "kalender" && calMode === "month" && (
           <CalendarView
             year={year}
@@ -133,6 +100,8 @@ export default function Zeiterfassung({ session, supabase, onLogout }) {
             onNextMonth={goNextMonth}
             onOpenYear={() => setCalMode("year")}
             onSelectDay={(key) => setSheetDate(key)}
+            onAddTrip={(startKey) => setMontageSheet({ startKey })}
+            onEditTrip={(trip) => setMontageSheet({ trip })}
           />
         )}
         {activeTab === "kalender" && calMode === "year" && (
@@ -159,7 +128,7 @@ export default function Zeiterfassung({ session, supabase, onLogout }) {
         )}
       </div>
 
-      <div className="flex shrink-0" style={{ borderTop: `1px solid ${BORDER}` }}>
+      <div className="tab-bar flex shrink-0" style={{ borderTop: `1px solid ${BORDER}`, background: BG_PAGE }}>
         {TABS.map((t) => {
           const Icon = t.icon;
           const active = activeTab === t.id;
@@ -179,12 +148,27 @@ export default function Zeiterfassung({ session, supabase, onLogout }) {
 
       {sheetDate && (
         <EntrySheet
+          key={sheetDate}
           dateKey={sheetDate}
           entry={entries[sheetDate] || null}
           settings={settings}
           onClose={() => setSheetDate(null)}
           onSave={saveEntry}
           onDelete={deleteEntry}
+          onAddTrip={(startKey) => setMontageSheet({ startKey })}
+          onEditTrip={(trip) => setMontageSheet({ trip })}
+        />
+      )}
+
+      {montageSheet && (
+        <MontageSheet
+          key={montageSheet.trip?.id || montageSheet.startKey}
+          trip={montageSheet.trip || null}
+          startKey={montageSheet.startKey}
+          trips={settings.montagen || []}
+          onClose={() => setMontageSheet(null)}
+          onSave={saveTrip}
+          onDelete={deleteTrip}
         />
       )}
     </div>

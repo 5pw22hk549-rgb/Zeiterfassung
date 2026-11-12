@@ -2,14 +2,79 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Die Seite selbst scrollt nie – gescrollt wird nur innerhalb der Ansichten.
+   Verhindert, dass sich die App auf dem Handy seitlich/nach oben "verschiebt". */
 html,
 body,
 #root {
   height: 100%;
-  min-height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
   background: #000000;
+  overscroll-behavior: none;
+  /* kein versehentliches Doppeltipp-Zoomen */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* App-Rahmen: exakt die sichtbare Höhe (dvh berücksichtigt die Safari-Leisten,
+   100vh ist auf dem iPhone höher als der sichtbare Bereich). */
+.app-shell {
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* Platz für die Home-Leiste, falls die App randlos läuft */
+.tab-bar {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Eingabe-Blätter (Tag, Montage) */
+.sheet-panel {
+  max-height: 88vh;
+  max-height: 88dvh;
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  overscroll-behavior: contain;
+}
+
+/* Scrollbereiche: Ziehen am Ende zieht nicht die ganze Seite mit */
+.overflow-y-auto {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* iOS zoomt in jedes Feld mit Schrift unter 16px hinein und bleibt danach vergrößert
+   stehen (man sieht dann nur noch einen Teil der Seite). Nur auf iOS: Felder auf 16px. */
+@supports (-webkit-touch-callout: none) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Datumsfelder: auf iOS gleiche Höhe/Ausrichtung wie die übrigen Felder */
+.date-input {
+  -webkit-appearance: none;
+  appearance: none;
+  min-height: 2.375rem;
+}
+.date-input::-webkit-date-and-time-value {
+  text-align: left;
+}
+
+/* Auswahllisten/Kalender des Systems passend zum dunklen Design */
+input,
+select,
+textarea {
+  color-scheme: dark;
 }

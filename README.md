@@ -114,11 +114,28 @@ du eine besitzt (Vercel selbst verlangt dafür nichts, nur die Domain-Registrier
 Anbieter). Denk daran, die neue Domain danach auch bei Supabase unter **Site URL** /
 **Redirect URLs** zu ergänzen.
 
+## Was die App kann (Kurzüberblick)
+
+- **Kalender:** pro Tag ein Eintrag – Arbeiten, Urlaub, Krank oder Schule. Zeiten und Pausen
+  gibt es nur im 15-Minuten-Raster, die Stunden sind dadurch immer volle, halbe oder
+  Viertelstunden (8,0 · 7,75 · 7,5 · 7,25).
+- **Montage mit Übernachtung:** von wann bis wann und wo – reine Dokumentation ohne Einfluss
+  auf die Stunden. Wird im Kalender an den betroffenen Tagen und im Export angezeigt.
+- **Übersicht:** Stunden und Überstunden für Monat, Jahr oder Gesamt. Soll-Stunden zählen nur
+  für Tage mit Eintrag – fehlende oder künftige Tage ergeben keine Minusstunden.
+- **Export:** eine Liste (Tag, Art, Stunden) plus Übernachtungen als PDF, Excel oder CSV.
+
 ## Wie die Daten gespeichert werden
 
 - Eine Tabelle `user_data`, eine Zeile pro Person (`user_id`).
 - Zwei Spalten `entries` und `settings` (JSON) — exakt die gleiche Struktur wie vorher, nur in
   einer echten Datenbank statt im Claude-Artefakt-Speicher.
+- Die Montagen liegen mit in `settings` (`settings.montagen`) – es ist keine Änderung an der
+  Datenbank nötig.
+- Vor jedem Speichern wird der aktuelle Stand vom Server geholt und nur das übernommen, was
+  wirklich geändert wurde. So überschreibt ein altes, noch offenes Tab auf einem anderen Gerät
+  nichts. Scheitert das Speichern (kein Netz), bleibt die Änderung auf dem Gerät erhalten und
+  wird automatisch nachgereicht; oben erscheint so lange „Nicht gespeichert".
 - Row Level Security sorgt dafür, dass niemand die Zeile einer anderen Person lesen oder
   ändern kann — das passiert automatisch in der Datenbank, nicht im Frontend-Code.
 

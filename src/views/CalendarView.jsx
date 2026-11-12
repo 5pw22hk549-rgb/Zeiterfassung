@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, ChevronDown } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Plus } from "lucide-react";
 import {
   BG_SURFACE,
   BORDER,
@@ -7,6 +7,7 @@ import {
   ACCENT,
   WARNING,
   HOLIDAY,
+  MONTAGE,
   TYPE_META,
   MONTH_NAMES,
   WEEKDAYS_SHORT,
@@ -16,11 +17,20 @@ import {
   formatHours,
   isWeekend,
   holidayName,
+  dateKey,
+  formatDateKey,
+  tripsForDay,
+  tripsInMonth,
 } from "../lib/model";
 
-export default function CalendarView({ year, month, entries, settings, onPrevMonth, onNextMonth, onOpenYear, onSelectDay }) {
+export default function CalendarView({ year, month, entries, settings, onPrevMonth, onNextMonth, onOpenYear, onSelectDay, onAddTrip, onEditTrip }) {
   const days = getMonthDays(year, month);
   const today = new Date();
+  const todayKey = keyOf(today);
+  const trips = settings.montagen || [];
+  const monthTrips = tripsInMonth(trips, year, month);
+  // Neue Montage: heute vorschlagen, wenn der aktuelle Monat offen ist – sonst der Monatserste
+  const newTripStart = today.getFullYear() === year && today.getMonth() === month ? todayKey : dateKey(year, month, 1);
 
   let monthHours = 0;
 
@@ -30,7 +40,7 @@ export default function CalendarView({ year, month, entries, settings, onPrevMon
     const holiday = holidayName(day);
     const hours = entry ? calcHours(entry, day, settings) : 0;
     monthHours += hours;
-    return { day, key, entry, holiday, hours };
+    return { day, key, entry, holiday, hours, dayTrips: tripsForDay(trips, key) };
   });
 
   return (
@@ -58,9 +68,9 @@ export default function CalendarView({ year, month, entries, settings, onPrevMon
 
       <div className="flex-1 overflow-y-auto px-3 pb-3">
         <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${BORDER}` }}>
-          {rows.map(({ day, key, entry, holiday, hours }, i) => {
+          {rows.map(({ day, key, entry, holiday, hours, dayTrips }, i) => {
             const weekend = isWeekend(day);
-            const isToday = key === keyOf(today);
+            const isToday = key === todayKey;
             const meta = entry ? TYPE_META[entry.type] : null;
             return (
               <button
@@ -105,7 +115,12 @@ export default function CalendarView({ year, month, entries, settings, onPrevMon
                       {entry.start ? ` · ${entry.start}–${entry.end}` : ""}
                     </span>
                   )}
-                  {!holiday && !entry && <span className="text-sm" style={{ color: TEXT_MUTED }}>–</span>}
+                  {dayTrips.map((t) => (
+                    <span key={t.id} className="text-xs px-2 py-0.5 rounded-full max-w-full truncate" style={{ background: MONTAGE + "26", color: MONTAGE }}>
+                      Montage{t.place ? ` · ${t.place}` : ""}
+                    </span>
+                  ))}
+                  {!holiday && !entry && dayTrips.length === 0 && <span className="text-sm" style={{ color: TEXT_MUTED }}>–</span>}
                 </div>
 
                 <div className="text-sm font-medium shrink-0" style={{ color: hours ? TEXT : TEXT_MUTED }}>
@@ -114,6 +129,36 @@ export default function CalendarView({ year, month, entries, settings, onPrevMon
               </button>
             );
           })}
+        </div>
+
+        <div className="rounded-xl mt-3 overflow-hidden" style={{ background: BG_SURFACE, border: `1px solid ${BORDER}` }}>
+          <div className="flex items-center justify-between px-3 py-2.5">
+            <span className="text-sm font-semibold">Montage mit Übernachtung</span>
+            <button onClick={() => onAddTrip(newTripStart)} className="text-xs flex items-center gap-1 py-1" style={{ color: ACCENT }}>
+              <Plus size={14} /> Hinzufügen
+            </button>
+          </div>
+          {monthTrips.length === 0 && (
+            <div className="px-3 pb-3 text-xs" style={{ color: TEXT_MUTED }}>Keine Übernachtung in diesem Monat.</div>
+          )}
+          {monthTrips.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => onEditTrip({ id: t.id, from: t.from, to: t.to, place: t.place })}
+              className="w-full flex items-center gap-3 px-3 py-2.5 text-left"
+              style={{ borderTop: `1px solid ${BORDER}` }}
+            >
+              <div className="flex-1 min-w-0 flex flex-col">
+                <span className="text-sm truncate" style={{ color: MONTAGE }}>{t.place || "Montage"}</span>
+                <span className="text-xs" style={{ color: TEXT_MUTED }}>
+                  {formatDateKey(t.from)} – {formatDateKey(t.to)}
+                </span>
+              </div>
+              <div className="text-sm font-medium shrink-0" style={{ color: TEXT }}>
+                {t.nights} {t.nights === 1 ? "Nacht" : "Nächte"}
+              </div>
+            </button>
+          ))}
         </div>
       </div>
     </div>

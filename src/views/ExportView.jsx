@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Share, Download, FileText, FileSpreadsheet, Table } from "lucide-react";
 import { BG_SURFACE, BORDER, TEXT, TEXT_MUTED, ACCENT, MONTH_NAMES } from "../lib/model";
-import { buildMonthRows, subjectFor, fileExtFor, runExport } from "../lib/export";
+import { buildMonthExport, subjectFor, fileExtFor, runExport } from "../lib/export";
 
 const FORMATS = [
   { id: "pdf", label: "PDF", icon: FileText },
@@ -19,24 +19,30 @@ export default function ExportView({ settings, entries, year, month, onChangeMon
     for (let m = 0; m < 12; m++) monthOptions.push({ y, m });
   }
 
-  const doExport = async (mode) => {
+  // Bewusst nicht async bis zum Teilen: Das Teilen-Menü muss direkt im Tipp geöffnet werden.
+  const doExport = (mode) => {
+    if (busy) return;
     setBusy(true);
     setStatus("");
+    let pending;
     try {
-      const rows = buildMonthRows(settings, entries, year, month);
+      const data = buildMonthExport(settings, entries, year, month);
       const subject = subjectFor(settings.name, year, month);
       const filename = `Stundenzettel_${MONTH_NAMES[month]}_${year}.${fileExtFor(format)}`;
-      const res = await runExport(rows, subject, format, filename, mode);
-      if (res.method === "share") setStatus("Geteilt.");
-      else if (res.method === "download") setStatus("Heruntergeladen.");
-      else if (res.method === "download+mailto") setStatus("Heruntergeladen – bitte in der geöffneten Mail manuell anhängen.");
-      else if (res.method === "print-dialog") setStatus('Druckdialog geöffnet – dort "Teilen" oder "Als PDF sichern" wählen.');
-      else if (res.method === "blocked") setStatus("Der Browser hat das Öffnen des Druckfensters blockiert. Bitte Pop-ups erlauben und erneut versuchen.");
+      pending = runExport(data, subject, format, filename, mode);
     } catch (e) {
       setStatus("Fehler beim Erzeugen der Datei: " + e.message);
-    } finally {
       setBusy(false);
+      return;
     }
+    pending
+      .then((res) => {
+        if (res.method === "share") setStatus("Geteilt.");
+        else if (res.method === "download") setStatus("Heruntergeladen.");
+        else if (res.method === "download+mailto") setStatus("Heruntergeladen – bitte in der geöffneten Mail manuell anhängen.");
+      })
+      .catch((e) => setStatus("Fehler beim Teilen: " + e.message))
+      .finally(() => setBusy(false));
   };
 
   return (

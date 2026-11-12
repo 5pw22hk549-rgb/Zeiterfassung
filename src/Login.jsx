@@ -15,7 +15,7 @@ export default function Login() {
     setLoading(true);
     setError("");
     const { error } = await supabase.auth.signInWithOtp({
-      email,
+      email: email.trim(),
       options: { emailRedirectTo: window.location.origin },
     });
     setLoading(false);
@@ -28,7 +28,7 @@ export default function Login() {
 
   return (
     <div
-      className="w-full min-h-screen flex items-center justify-center p-6"
+      className="app-shell w-full flex items-center justify-center p-6 overflow-y-auto"
       style={{ background: BG_PAGE, color: TEXT, fontFamily: SYSTEM_FONT }}
     >
       <div
@@ -75,6 +75,9 @@ export default function Login() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="du@beispiel.de"
+              autoComplete="email"
+              autoCapitalize="none"
+              autoCorrect="off"
               className="w-full bg-transparent text-sm px-3 py-2.5 rounded-xl"
               style={{ border: `1px solid ${BORDER}`, color: TEXT }}
             />

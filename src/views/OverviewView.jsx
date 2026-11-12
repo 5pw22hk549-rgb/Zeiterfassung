@@ -1,6 +1,12 @@
 import { useState, useMemo } from "react";
 import { BG_SURFACE, BORDER, TEXT, TEXT_MUTED, ACCENT, SUCCESS, DANGER, calcOverview, formatHours, MONTH_NAMES } from "../lib/model";
 
+const PERIODS = [
+  { id: "monat", label: "Monat" },
+  { id: "jahr", label: "Jahr" },
+  { id: "gesamt", label: "Gesamt" },
+];
+
 function StatCard({ label, value, sub, color }) {
   return (
     <div className="rounded-xl p-3 flex flex-col gap-1" style={{ background: BG_SURFACE, border: `1px solid ${BORDER}` }}>
@@ -12,20 +18,21 @@ function StatCard({ label, value, sub, color }) {
 }
 
 export default function OverviewView({ settings, entries, year, month }) {
-  const [periodMode, setPeriodMode] = useState("monat"); // "monat" | "jahr"
+  const [periodMode, setPeriodMode] = useState("monat"); // "monat" | "jahr" | "gesamt"
 
   const stats = useMemo(
-    () => calcOverview(settings, entries, year, periodMode === "monat" ? month : null),
+    () => calcOverview(settings, entries, year, periodMode === "monat" ? month : periodMode === "jahr" ? null : "gesamt"),
     [settings, entries, year, month, periodMode]
   );
 
-  const periodLabel = periodMode === "monat" ? `${MONTH_NAMES[month]} ${year}` : `${year}`;
+  const periodLabel =
+    periodMode === "monat" ? `${MONTH_NAMES[month]} ${year}` : periodMode === "jahr" ? `${year}` : "Alle Einträge";
 
   return (
     <div className="flex flex-col h-full overflow-y-auto px-4 pb-4" style={{ color: TEXT }}>
       <div className="flex items-center justify-center gap-1 py-3 shrink-0">
         <div className="flex rounded-lg overflow-hidden" style={{ border: `1px solid ${BORDER}` }}>
-          {["monat", "jahr"].map((m) => (
+          {PERIODS.map(({ id: m, label }) => (
             <button
               key={m}
               onClick={() => setPeriodMode(m)}
@@ -35,7 +42,7 @@ export default function OverviewView({ settings, entries, year, month }) {
                 color: periodMode === m ? "#fff" : TEXT_MUTED,
               }}
             >
-              {m === "monat" ? "Monat" : "Jahr"}
+              {label}
             </button>
           ))}
         </div>
@@ -52,10 +59,10 @@ export default function OverviewView({ settings, entries, year, month }) {
 
       <div className="grid grid-cols-2 gap-2.5 mb-3">
         <StatCard label="Ist-Stunden" value={`${formatHours(stats.istStunden)} Std.`} />
-        <StatCard label="Soll-Stunden" value={`${formatHours(stats.sollStunden)} Std.`} />
+        <StatCard label="Soll-Stunden" value={`${formatHours(stats.sollStunden)} Std.`} sub="für eingetragene Tage" />
         <StatCard label="Kranktage" value={stats.krankTage} color={stats.krankTage ? DANGER : undefined} />
         <StatCard label="Schultage" value={stats.schulTage} />
-        <StatCard label="Resturlaub" value={`${stats.resturlaub} Tage`} />
+        <StatCard label={periodMode === "gesamt" ? `Resturlaub ${year}` : "Resturlaub"} value={`${stats.resturlaub} Tage`} />
         <StatCard label="Feiertage" value={stats.feiertagTage} />
       </div>
     </div>

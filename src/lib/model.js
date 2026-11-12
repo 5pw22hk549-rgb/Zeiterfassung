@@ -14,6 +14,7 @@ export const SUCCESS = "#32D74A";
 export const DANGER = "#FF453A";
 export const WARNING = "#FF9F0A";
 export const HOLIDAY = "#BF5AF2";
+export const MONTAGE = "#64D2FF";
 export const SYSTEM_FONT =
   '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 
@@ -55,6 +56,8 @@ export function defaultSettings() {
       schule: { start: "07:00", end: "15:00", pause: 0 },
     },
     activities: DEFAULT_ACTIVITIES.map((a) => ({ ...a })),
+    // Montage mit Übernachtung: [{ id, from: "YYYY-MM-DD", to: "YYYY-MM-DD", place }]
+    montagen: [],
   };
 }
 
@@ -106,11 +109,28 @@ export function calcHours(entry, date, settings) {
   return mins / 60;
 }
 
+// Stunden immer im Viertelstunden-tauglichen Format: 8,0 · 7,5 · 7,75 · 7,25
 export function formatHours(h) {
   if (h === undefined || h === null || Number.isNaN(h)) return "0,0";
-  const sign = h < 0 ? "-" : "";
-  const abs = Math.abs(h);
-  return sign + abs.toFixed(1).replace(".", ",");
+  const rounded = Math.round(h * 100) / 100;
+  const sign = rounded < 0 ? "-" : "";
+  const abs = Math.abs(rounded);
+  const twoDecimals = Math.round(abs * 100) % 10 !== 0;
+  return sign + abs.toFixed(twoDecimals ? 2 : 1).replace(".", ",");
+}
+
+// ---------- Viertelstunden-Raster ----------
+
+export const QUARTER_MINUTES = 15;
+
+// Alle Uhrzeiten im 15-Minuten-Raster: "00:00", "00:15", … "23:45"
+export const QUARTER_TIMES = Array.from({ length: 96 }, (_, i) => `${pad2(Math.floor(i / 4))}:${pad2((i % 4) * 15)}`);
+
+// Pausenlängen im 15-Minuten-Raster (Minuten)
+export const PAUSE_OPTIONS = [15, 30, 45, 60, 75, 90, 105, 120];
+
+export function isQuarterTime(t) {
+  return typeof t === "string" && /^\d{2}:\d{2}$/.test(t) && timeToMinutes(t) % QUARTER_MINUTES === 0;
 }
 
 export const WEEKDAYS_SHORT = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
@@ -214,11 +234,86 @@ export function isHoliday(date) {
   return !!holidayName(date);
 }
 
+// ---------- Montage mit Übernachtung ----------
+// Reine Dokumentation (von wann bis wann, wo) – hat keinen Einfluss auf die Stunden.
+
+const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function isDateKey(key) {
+  if (typeof key !== "string" || !DATE_KEY_RE.test(key)) return false;
+  return keyOf(parseKey(key)) === key; // fängt z. B. 2026-02-31 ab
+}
+
+// "2026-11-03" -> "03.11.2026"
+export function formatDateKey(key) {
+  if (!isDateKey(key)) return "";
+  const [y, m, d] = key.split("-");
+  return `${d}.${m}.${y}`;
+}
+
+// Anzahl Nächte zwischen zwei Datums-Keys (to - from in Tagen)
+export function nightsBetween(fromKey, toKey) {
+  const a = parseKey(fromKey);
+  const b = parseKey(toKey);
+  return Math.round((Date.UTC(b.getFullYear(), b.getMonth(), b.getDate()) - Date.UTC(a.getFullYear(), a.getMonth(), a.getDate())) / 86400000);
+}
+
+export function tripNights(trip) {
+  return Math.max(0, nightsBetween(trip.from, trip.to));
+}
+
+// Unbekannte/kaputte Einträge raus, sortiert nach Beginn
+export function sanitizeTrips(raw) {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const t of raw) {
+    if (!t || typeof t !== "object") continue;
+    if (!isDateKey(t.from) || !isDateKey(t.to) || t.to <= t.from) continue;
+    const id = typeof t.id === "string" && t.id ? t.id : newId();
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({ id, from: t.from, to: t.to, place: String(t.place ?? "").trim() });
+  }
+  return sortTrips(out);
+}
+
+export function sortTrips(trips) {
+  return [...trips].sort((a, b) => (a.from === b.from ? (a.to < b.to ? -1 : a.to > b.to ? 1 : 0) : a.from < b.from ? -1 : 1));
+}
+
+// Montagen, die einen Tag berühren (An- und Abreisetag zählen dazu)
+export function tripsForDay(trips, key) {
+  return (trips || []).filter((t) => t.from <= key && key <= t.to);
+}
+
+// Überschneidet sich eine Montage mit einer anderen? (Rückkehr und neue Abfahrt am selben Tag ist erlaubt)
+export function findOverlappingTrip(trips, candidate) {
+  return (trips || []).find((t) => t.id !== candidate.id && t.from < candidate.to && candidate.from < t.to) || null;
+}
+
+// Montagen, die den Monat berühren – mit Nächten, die in diesen Monat fallen.
+// Eine Nacht zählt zu dem Monat, in dem sie beginnt (Nacht vom 30.11. auf 01.12. = November).
+export function tripsInMonth(trips, year, month) {
+  const first = dateKey(year, month, 1);
+  const last = dateKey(year, month, new Date(year, month + 1, 0).getDate());
+  const nextFirst = keyOf(new Date(year, month + 1, 1));
+  const out = [];
+  for (const t of sortTrips(trips || [])) {
+    if (t.to < first || t.from > last) continue;
+    const start = t.from < first ? first : t.from;
+    const end = t.to > nextFirst ? nextFirst : t.to;
+    out.push({ ...t, nights: tripNights(t), nightsInMonth: Math.max(0, nightsBetween(start, end)) });
+  }
+  return out;
+}
+
 // ---------- Migration (ältere Datenformate -> aktuelles einfaches Modell) ----------
 
 const ALLOWED_TYPES = new Set(TYPE_ORDER);
 
-function stripEntry(e) {
+// Bringt einen Eintrag auf genau die Felder, die sein Typ braucht.
+export function stripEntry(e) {
   if (!e || !ALLOWED_TYPES.has(e.type)) return null;
   const out = { type: e.type };
   if (TIME_TYPES.includes(e.type)) {
@@ -296,6 +391,7 @@ export function migrateData(rawEntries, rawSettings) {
         schule: job.defaults?.schule || base.defaults.schule,
       },
       activities: job.activities?.length ? job.activities : base.activities,
+      montagen: [],
     };
     changed = true;
   } else {
@@ -311,8 +407,10 @@ export function migrateData(rawEntries, rawSettings) {
         schule: rawSettings.defaults?.schule || base.defaults.schule,
       },
       activities: rawSettings.activities?.length ? rawSettings.activities : base.activities,
+      montagen: sanitizeTrips(rawSettings.montagen),
     };
     if (!rawSettings.activities?.length) changed = true;
+    if (JSON.stringify(settings.montagen) !== JSON.stringify(rawSettings.montagen)) changed = true;
     // Altlasten (Übernachtung, Zulagen, Kunden, Projekte, Jobs …) fliegen raus
     if (Object.keys(rawSettings).some((k) => !(k in settings))) changed = true;
   }
@@ -346,6 +444,26 @@ export function isWorkday(date, workDaysPerWeek = 5) {
   return dow !== 0 && dow !== 6;
 }
 
+// Frühester und spätester Tag mit Eintrag ("YYYY-MM-DD") – für die Gesamt-Übersicht.
+export function entryRange(entries) {
+  let min = null;
+  let max = null;
+  for (const key of Object.keys(entries || {})) {
+    if (!isDateKey(key)) continue;
+    if (min === null || key < min) min = key;
+    if (max === null || key > max) max = key;
+  }
+  return min === null ? null : { first: min, last: max };
+}
+
+// Alle Tage von/bis (einschließlich) als Date-Liste
+export function getDaysBetween(fromKey, toKey) {
+  const days = [];
+  const end = parseKey(toKey);
+  for (let d = parseKey(fromKey); d <= end; d = addDays(d, 1)) days.push(d);
+  return days;
+}
+
 export function calcStats(settings, entries, days, yearDays) {
   // (Urlaub/Krank an Wochenende/Feiertag zählen weder Stunden noch Tage)
   const dailyHours = settings.workDaysPerWeek > 0 ? settings.weeklyHours / settings.workDaysPerWeek : 0;
@@ -358,12 +476,15 @@ export function calcStats(settings, entries, days, yearDays) {
 
   for (const day of days) {
     if (isHoliday(day)) feiertagTage += 1;
-    const key = keyOf(day);
-    const entry = entries[key];
-    if (isWorkday(day, settings.workDaysPerWeek)) sollTage += 1;
-    if (!entry) continue;
+    const entry = entries[keyOf(day)];
+    if (!entry) continue; // Tage ohne Eintrag zählen NICHT als Minusstunden
 
+    // Soll gibt es nur für Arbeitstage, an denen etwas eingetragen ist. So entstehen
+    // Über-/Minusstunden ausschließlich aus dem, was wirklich erfasst wurde – und nicht
+    // daraus, dass Tage noch nicht eingetragen sind oder in der Zukunft liegen.
     const workday = isWorkday(day, settings.workDaysPerWeek);
+    if (workday) sollTage += 1;
+
     if (entry.type === "arbeit" || entry.type === "schule") {
       istStunden += calcHours(entry);
       if (entry.type === "schule") schulTage += 1;
@@ -377,7 +498,8 @@ export function calcStats(settings, entries, days, yearDays) {
   }
 
   const sollStunden = sollTage * dailyHours;
-  const ueberstunden = istStunden - sollStunden;
+  // auf 2 Stellen runden, damit aus Rechenungenauigkeit kein "-0,0" wird
+  const ueberstunden = Math.round((istStunden - sollStunden) * 100) / 100 || 0;
   const urlaubJahr = yearDays ? calcVacationTaken(entries, yearDays, settings.workDaysPerWeek) : urlaubTageGenommen;
   const resturlaub = settings.vacationDaysPerYear - urlaubJahr;
 
@@ -402,8 +524,17 @@ function calcVacationTaken(entries, yearDays, workDaysPerWeek) {
   return n;
 }
 
-export function calcOverview(settings, entries, year, month /* 0-11 oder null für Jahr */) {
-  const days = month === null || month === undefined ? getYearDays(year) : getMonthDays(year, month);
-  const yearDays = getYearDays(year);
-  return calcStats(settings, entries, days, yearDays);
+// month: 0–11 = dieser Monat · null = ganzes Jahr · "gesamt" = alles, was je eingetragen wurde.
+// Resturlaub bezieht sich immer auf das angezeigte Jahr.
+export function calcOverview(settings, entries, year, month) {
+  let days;
+  if (month === "gesamt") {
+    const range = entryRange(entries);
+    days = range ? getDaysBetween(range.first, range.last) : [];
+  } else if (month === null || month === undefined) {
+    days = getYearDays(year);
+  } else {
+    days = getMonthDays(year, month);
+  }
+  return calcStats(settings, entries, days, getYearDays(year));
 }

@@ -15,13 +15,37 @@ export default function App() {
     return () => listener.subscription.unsubscribe();
   }, []);
 
+  // Handy: Nach dem Schließen von Tastatur/Auswahl lässt iOS die Seite gern ein Stück
+  // verschoben stehen. Sobald kein Eingabefeld mehr aktiv ist, wieder sauber ausrichten.
+  // Außerdem: Enter/"Fertig" auf der Tastatur verlässt das Feld.
+  useEffect(() => {
+    const isField = (el) => el instanceof HTMLElement && /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName);
+    let timer;
+    const onFocusOut = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (!isField(document.activeElement)) window.scrollTo(0, 0);
+      }, 80);
+    };
+    const onKeyDown = (e) => {
+      if (e.key === "Enter" && e.target instanceof HTMLInputElement && !e.target.form) e.target.blur();
+    };
+    document.addEventListener("focusout", onFocusOut);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("focusout", onFocusOut);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
+
   if (session === undefined) {
     return (
       <div
-        className="w-full min-h-screen flex items-center justify-center"
+        className="app-shell w-full flex items-center justify-center"
         style={{ background: "#000000", color: "#8E8E93" }}
       >
-        Lade …
+        Lädt …
       </div>
     );
   }
@@ -30,6 +54,7 @@ export default function App() {
 
   return (
     <Zeiterfassung
+      key={session.user.id}
       session={session}
       supabase={supabase}
       onLogout={() => supabase.auth.signOut()}
